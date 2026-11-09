@@ -1,0 +1,48 @@
+name: Leer tareas de Bitrix24
+
+on:
+  schedule:
+    # GitHub suele atrasar varias horas las ejecuciones programadas: una corrida la noche anterior
+    # (20:00 en Santiago en horario de verano) asegura datos listos antes de la actualización de las 8:51.
+    - cron: "0 23 * * *"
+    - cron: "17 8 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: leer-bitrix
+  cancel-in-progress: false
+
+jobs:
+  leer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Leer Bitrix24 (solo lectura)
+        env:
+          BITRIX_WEBHOOK: ${{ secrets.BITRIX_WEBHOOK }}
+        run: python scripts/leer_bitrix.py
+
+      - name: Cifrar los datos
+        env:
+          DATOS_CLAVE: ${{ secrets.DATOS_CLAVE }}
+        run: |
+          test -n "$DATOS_CLAVE" || { echo "ERROR: falta el secreto DATOS_CLAVE"; exit 1; }
+          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -a -pass env:DATOS_CLAVE -in tareas.json -out tareas.enc
+          rm tareas.json
+
+      - name: Guardar resultado
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tareas.enc ultima_lectura.json
+          git commit -m "Actualizar tareas de Bitrix24" || echo "Sin cambios"
+          git push
